@@ -1,0 +1,16 @@
+# Terraform Import Process Documentation
+
+## Resources Imported
+1. aws_s3_bucket.imported_bucket (my-existing-bucket)
+2. aws_s3_bucket_versioning.imported_bucket_versioning
+3. aws_s3_bucket_server_side_encryption_configuration.imported_bucket_encryption
+4. aws_s3_bucket_public_access_block.imported_bucket_pab
+5. aws_s3_bucket.second_imported_bucket (another-existing-bucket)
+6. aws_s3_bucket_policy.second_bucket_policy
+
+## Import Commands Used
+```bash
+terraform import aws_s3_bucket.imported_bucket my-existing-bucket
+terraform import aws_s3_bucket_versioning.imported_bucket_versioning my-existing-bucket
+terraform import aws_s3_bucket.second_imported_bucket another-existing-bucket
+terraform import aws_s3_bucket_policy.second_bucket_policy another-existing-bucket
