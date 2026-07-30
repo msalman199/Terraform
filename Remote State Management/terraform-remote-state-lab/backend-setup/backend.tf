@@ -62,3 +62,33 @@ output "s3_bucket_arn" {
   description = "ARN of the S3 bucket"
   value       = aws_s3_bucket.terraform_state.arn
 }
+
+# DynamoDB table for state locking
+resource "aws_dynamodb_table" "terraform_state_lock" {
+  name           = "terraform-state-lock-${var.environment}"
+  billing_mode   = "PAY_PER_REQUEST"
+  hash_key       = "LockID"
+
+  attribute {
+    name = "LockID"
+    type = "S"
+  }
+
+  tags = {
+    Name        = "Terraform State Lock Table"
+    Environment = var.environment
+    Purpose     = "State Locking"
+  }
+}
+
+# Output the DynamoDB table name
+output "dynamodb_table_name" {
+  description = "Name of the DynamoDB table for state locking"
+  value       = aws_dynamodb_table.terraform_state_lock.name
+}
+
+output "dynamodb_table_arn" {
+  description = "ARN of the DynamoDB table for state locking"
+  value       = aws_dynamodb_table.terraform_state_lock.arn
+}
+
