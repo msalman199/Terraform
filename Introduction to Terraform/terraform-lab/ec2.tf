@@ -23,3 +23,10 @@ resource "aws_instance" "terraform_instance" {
     CreatedBy   = "Terraform"
   }
 }
+
+tags = {
+  Name        = "terraform-lab-instance"
+  Environment = var.environment
+  CreatedBy   = "Terraform"
+  Modified    = "true"
+}
