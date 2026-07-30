@@ -1,0 +1,88 @@
+ Modular Design with Terraform
+Objectives
+Design a reusable Terraform module that abstracts EC2 instance provisioning behind a clean variable interface
+Compose multiple instances of that module into isolated environment configurations representing dev, test, and prod tiers
+Validate module reusability by demonstrating that changing variable inputs alone produces meaningfully different infrastructure plans
+Prerequisites
+Comfort navigating and editing files on an Ubuntu Linux command line
+Familiarity with basic Terraform concepts: providers, resources, variables, and outputs
+Lab Environment
+You will work on a dedicated AWS EC2 Ubuntu instance provided by Al Nafi. The instance has a base Ubuntu installation; you will install all required tools in Task 1.
+
+Task 1: Install and Verify Required Tools
+Step 1: Install Terraform and the AWS CLI
+Install both tools from their official distribution channels and confirm each binary is reachable on your PATH.
+
+# Install system dependencies
+sudo apt-get update -y
+sudo apt-get install -y wget unzip curl gnupg software-properties-common
+
+# Add HashiCorp's GPG key and apt repository for Terraform
+wget -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+If the URL above fails, find the current key URL at: https://developer.hashicorp.com/terraform/install
+
+printf 'deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com %s main\n' \
+  "$(lsb_release -cs)" \
+  | sudo tee /etc/apt/sources.list.d/hashicorp.list
+
+sudo apt-get update -y
+sudo apt-get install -y terraform
+Troubleshoot this step:
+
+Error seen: E: Malformed entry 1 in list file /etc/apt/sources.list.d/hashicorp.list
+Recovery: Run cat /etc/apt/sources.list.d/hashicorp.list â the file must be a single unbroken line with no backslashes; delete it with sudo rm /etc/apt/sources.list.d/hashicorp.list and re-run the printf command above.
+Docs: https://developer.hashicorp.com/terraform/install
+# Install AWS CLI v2
+curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+If the URL above fails, find the current download link at: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
+
+unzip /tmp/awscliv2.zip -d /tmp/awscli-install
+sudo /tmp/awscli-install/aws/install
+rm -rf /tmp/awscliv2.zip /tmp/awscli-install
+Troubleshoot this step:
+
+Error seen: curl: (22) The requested URL returned error: 403 or a file named awscliv2.zip that is actually an HTML error page (unzip will report End-of-central-directory signature not found).
+Recovery: Delete the corrupt file with rm /tmp/awscliv2.zip, then visit the official URL in a browser to confirm the correct download link before retrying.
+Docs: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
+Step 2: Configure AWS credentials and verify both tools
+Configure the AWS CLI with the credentials provided in your Al Nafi lab session, then confirm Terraform and the AWS CLI can both communicate with AWS.
+
+# Configure AWS credentials interactively
+aws configure
+# When prompted, enter: AWS Access Key ID, AWS Secret Access Key, default region (us-east-1), output format (json)
+
+# Verify Terraform
+terraform version
+
+# Verify AWS CLI and credential validity
+aws sts get-caller-identity
+You should see a Terraform version string and a JSON object containing your AWS Account, UserId, and Arn. If aws sts get-caller-identity returns an InvalidClientTokenId or AuthFailure error, your credentials are incorrect â re-run aws configure with the values from your lab portal.
+
+Troubleshoot this step:
+
+Error seen: An error occurred (InvalidClientTokenId) when calling the GetCallerIdentity operation: The security token included in the request is invalid.
+Recovery: Run cat ~/.aws/credentials to inspect what was saved; delete the file with rm ~/.aws/credentials and re-run aws configure with the exact key values from your Al Nafi lab dashboard.
+Docs: https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html
+Task 2: Design and Build a Reusable EC2 Module
+Problem Statement
+Design and implement a Terraform module located at ~/tf-modular-lab/modules/ec2 that encapsulates all logic required to provision a single EC2 instance. The module must expose a variable interface expressive enough that a caller can produce meaningfully different infrastructure â different instance sizes, storage configurations, environment labels, and startup behavior â purely by changing input values, with no edits to the module source itself.
+
+The module must follow standard Terraform module layout conventions: a variables.tf file declaring all inputs with types, descriptions, and sensible defaults; a main.tf file containing all resource definitions; and an outputs.tf file exposing at minimum the instance ID, public IP, private IP, and the IDs of any security groups the module creates. The module must create its own security group when the caller does not supply one, and must apply a consistent set of resource tags derived from input variables. All root EBS volumes must be encrypted.
+
+Acceptance Criteria
+Running terraform init followed by terraform validate inside the module directory exits with code 0 and prints Success! The configuration is valid. â no warnings, no errors.
+When the module is called twice in the same root configuration with different values for instance_type, root_volume_size, and environment, running terraform plan produces a plan showing two distinct EC2 instances whose planned attributes reflect the differing variable values, confirmed by reading the plan output.
+Task 3: Compose Environment Configurations Using the Module
+Problem Statement
+Design and implement three separate Terraform root configurations â one each for dev, test, and prod â located at ~/tf-modular-lab/environments/dev, ~/tf-modular-lab/environments/test, and ~/tf-modular-lab/environments/prod. Each root configuration must call your modules/ec2 module one or more times using only relative source paths. The configurations must differ from one another in ways that reflect realistic environment differences: dev uses the smallest and cheapest instance sizes with auto-shutdown tags; test provisions at least two instances representing a web tier and an application tier; prod provisions at least three instances, enables detailed CloudWatch monitoring on all of them, uses larger root volumes, and applies backup-related tags. Each environment directory must contain its own outputs.tf that surfaces a structured summary of every instance the environment creates, including instance IDs and IP addresses.
+
+No environment configuration may duplicate resource logic that belongs in the module. If you find yourself writing an aws_instance resource block directly in an environment file, that logic must be moved into the module instead.
+
+Acceptance Criteria
+Running terraform init and terraform plan independently inside each of the three environment directories completes without errors, and the plan output for prod shows at least three planned aws_instance resources each with monitoring = true and a root_block_device volume size greater than or equal to 20 GB, confirmed by inspecting the plan JSON with terraform plan -out=prod.tfplan && terraform show -json prod.tfplan | grep -E '"monitoring"|"volume_size"'.
+The output of terraform output in each environment directory, after applying the configuration, displays a structured map containing the instance ID and at least one IP address for every instance that environment manages â with zero null values appearing for any instance that was successfully created.
+Expected Outcomes
+A fully validated, reusable Terraform module that provisions EC2 instances with zero resource logic duplicated across the three environment configurations that consume it.
+Three independently plannable environment configurations whose plans demonstrably differ in instance count, size, monitoring settings, and tags, driven entirely by module variable inputs.
+Conclusion
+This lab required you to separate the concern of how infrastructure is built (the module) from the concern of what infrastructure each environment needs (the root configurations). That separation is the foundation of maintainable infrastructure-as-code: when AWS changes an API or your organization adopts a new tagging standard, you update one module and every environment inherits the change automatically. Carry this principle forward by treating any resource block you find yourself copying between configurations as a signal that a module boundary is missing.
