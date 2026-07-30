@@ -34,3 +34,4 @@ resource "local_file" "json_config" {
     ]
   })
 }
+ main.tf
