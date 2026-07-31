@@ -1,0 +1,6 @@
+policy: ./policies
+data: ./data
+output: table
+combine: false
+trace: false
+strict: false
