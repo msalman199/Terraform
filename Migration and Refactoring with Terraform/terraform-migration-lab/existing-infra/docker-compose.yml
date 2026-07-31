@@ -1,0 +1,45 @@
+version: '3.8'
+services:
+  web-server-1:
+    image: nginx:alpine
+    container_name: legacy-web-1
+    ports:
+      - "8080:80"
+    environment:
+      - ENV=production
+    labels:
+      - "region=us-east-1"
+      - "tier=web"
+    networks:
+      - legacy-network
+
+  database-1:
+    image: postgres:13
+    container_name: legacy-db-1
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=appdb
+      - POSTGRES_USER=appuser
+      - POSTGRES_PASSWORD=secretpass
+    labels:
+      - "region=us-east-1"
+      - "tier=database"
+    networks:
+      - legacy-network
+
+  cache-server:
+    image: redis:alpine
+    container_name: legacy-cache-1
+    ports:
+      - "6379:6379"
+    labels:
+      - "region=us-east-1"
+      - "tier=cache"
+    networks:
+      - legacy-network
+
+networks:
+  legacy-network:
+    driver: bridge
+    name: legacy-network
