@@ -1,0 +1,172 @@
+Multi-Cloud Strategies with Terraform
+Objectives
+Design and deploy a modular Terraform configuration that provisions compute and networking resources simultaneously across AWS, Azure, and GCP
+Implement provider-specific Terraform modules with consistent tagging, output contracts, and variable interfaces
+Validate cross-cloud infrastructure state using CLI tooling and Terraform outputs
+Prerequisites
+Comfort with Linux command-line operations including file editing, directory navigation, and shell scripting
+Conceptual understanding of cloud networking primitives: virtual networks, subnets, security groups, and public IP assignment
+Active accounts on AWS, Azure, and GCP with permissions to create compute instances, virtual networks, and firewall rules
+Lab Environment
+You will work on a dedicated AWS EC2 Ubuntu instance provided by Al Nafi. The instance has a base Ubuntu installation; you will install all required tools in Task 1.
+
+Task 1: Install and Verify the Multi-Cloud Toolchain
+Requirement 1
+Install Terraform, the AWS CLI, the Azure CLI, and the Google Cloud CLI on the bare Ubuntu instance, then configure credentials for all three providers using environment variables or CLI authentication flows so that each provider can reach its respective control plane.
+
+After completing this step, the following four commands must each return a version string with exit code 0:
+
+terraform version
+aws --version
+az version
+gcloud version
+Official installation references (use these if any URL below has changed):
+
+Terraform: https://developer.hashicorp.com/terraform/install
+AWS CLI v2: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
+Azure CLI: https://learn.microsoft.com/en-us/cli/azure/install-azure-cli-linux
+Google Cloud CLI: https://cloud.google.com/sdk/docs/install
+# 1. System baseline
+sudo apt-get update -y && sudo apt-get install -y curl wget unzip gnupg lsb-release jq
+# 2. Terraform
+TERRAFORM_VERSION="1.8.5"
+wget -fsSL "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" \
+  -O /tmp/terraform.zip
+unzip /tmp/terraform.zip -d /tmp/terraform_bin
+sudo mv /tmp/terraform_bin/terraform /usr/local/bin/terraform
+sudo chmod +x /usr/local/bin/terraform
+terraform version
+Troubleshoot this step:
+
+You may see: Error: Failed to query available provider packages or terraform: command not found if the binary was not moved correctly.
+Confirm the binary is on PATH: echo $PATH must include /usr/local/bin; run ls -lh /usr/local/bin/terraform to confirm the file exists and is executable.
+Official guide: https://developer.hashicorp.com/terraform/install
+# 3. AWS CLI v2
+curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+unzip /tmp/awscliv2.zip -d /tmp/awscli
+sudo /tmp/awscli/aws/install
+aws --version
+Troubleshoot this step:
+
+You may see: aws: command not found or install failed if a previous version of the AWS CLI is present at /usr/bin/aws.
+Run which aws to locate any conflicting binary; if /usr/bin/aws exists, pass --update flag: sudo /tmp/awscli/aws/install --update.
+Official guide: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
+# 4. Azure CLI
+curl -fsSL https://aka.ms/InstallAzureCLIDeb | sudo bash
+az version
+Troubleshoot this step:
+
+You may see: E: Package 'azure-cli' has no installation candidate if the Microsoft apt repository was not added correctly.
+Inspect the repo file: cat /etc/apt/sources.list.d/azure-cli.list â it must contain a single unbroken deb line; if the file is empty or malformed, delete it and re-run the install script.
+Official guide: https://learn.microsoft.com/en-us/cli/azure/install-azure-cli-linux
+# 5. Google Cloud CLI
+sudo apt-get install -y apt-transport-https ca-certificates
+
+curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
+  | sudo gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
+
+printf 'deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main\n' \
+  | sudo tee /etc/apt/sources.list.d/google-cloud-sdk.list
+
+sudo apt-get update -y && sudo apt-get install -y google-cloud-cli
+gcloud version
+Troubleshoot this step:
+
+You may see: E: Malformed entry 1 in list file /etc/apt/sources.list.d/google-cloud-sdk.list if the printf line wrote a literal backslash into the file.
+Inspect the file: cat /etc/apt/sources.list.d/google-cloud-sdk.list â it must be a single unbroken line starting with deb; delete the file with sudo rm /etc/apt/sources.list.d/google-cloud-sdk.list and recreate it using the heredoc form shown in the shell safety rules.
+Official guide: https://cloud.google.com/sdk/docs/install
+# 6. Authenticate all three providers
+# AWS â set credentials as environment variables (replace placeholder values)
+export AWS_ACCESS_KEY_ID="REPLACE_WITH_YOUR_KEY_ID"
+export AWS_SECRET_ACCESS_KEY="REPLACE_WITH_YOUR_SECRET"
+export AWS_DEFAULT_REGION="us-east-1"
+aws sts get-caller-identity
+
+# Azure â interactive device-code login
+az login --use-device-code
+az account show --query "{subscription:id, tenant:tenantId}" -o table
+
+# GCP â interactive browser login; follow the URL printed to the terminal
+gcloud auth application-default login
+gcloud config set project REPLACE_WITH_YOUR_GCP_PROJECT_ID
+gcloud auth list
+Troubleshoot this step:
+
+For AWS you may see: An error occurred (InvalidClientTokenId) if the key ID or secret contains a copy-paste space; for GCP you may see: ERROR: (gcloud.auth.application-default.login) There was a problem refreshing your current auth tokens if the browser flow timed out.
+For AWS, re-export the variables with no surrounding spaces and re-run aws sts get-caller-identity; for GCP, re-run gcloud auth application-default login and complete the browser step within 60 seconds.
+AWS credentials: https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html â GCP ADC: https://cloud.google.com/docs/authentication/provide-credentials-adc
+Requirement 2
+Generate a 4096-bit RSA SSH key pair at ~/.ssh/id_rsa (no passphrase) and confirm that all three CLI tools can enumerate resources in their respective accounts, proving that credentials are valid before any Terraform code is written.
+
+Confirmation commands â each must return output with exit code 0:
+
+# SSH key
+ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
+cat ~/.ssh/id_rsa.pub
+
+# AWS: list available regions (proves IAM credentials work)
+aws ec2 describe-regions --query 'Regions[*].RegionName' --output table
+
+# Azure: list subscriptions (proves service principal or user login works)
+az account list --output table
+
+# GCP: list available zones (proves ADC works)
+gcloud compute zones list --filter="region:us-central1" --format="table(name,status)"
+Task 2: Design and Deploy the Multi-Cloud Terraform Module Architecture
+Problem Statement
+Design and implement a Terraform project that provisions one compute instance with a public IP address, one virtual network with a single public subnet, and one firewall/security-group permitting inbound TCP on ports 22 and 80 â simultaneously across AWS, Azure, and GCP â using a separate child module for each provider. The root module must call all three child modules, and every resource across all three clouds must carry a consistent set of tags or labels containing at minimum the keys environment and project.
+
+Phase 1: Module Architecture and Variable Contract
+Design a directory layout with a root module and three child modules (modules/aws, modules/azure, modules/gcp). Each child module must declare its own variables.tf and outputs.tf. The root module must pass a shared environment and project_name variable down to all three child modules, and each child module must output at minimum the public IP address of its compute instance.
+
+Acceptance Criteria
+
+Running terraform validate from the root module directory exits with code 0 and prints Success! The configuration is valid. with no warnings; this must pass before terraform plan is attempted.
+Running terraform fmt -check -recursive from the root module directory exits with code 0, confirming all .tf files are correctly formatted; any file that causes a non-zero exit must be reformatted with terraform fmt -recursive until the check passes.
+Phase 2: Provision and Verify All Three Clouds
+Deploy the infrastructure with terraform apply and verify that all three compute instances are reachable on port 80 using curl.
+
+Acceptance Criteria
+
+After terraform apply completes, running terraform output -json must produce a JSON object containing a non-empty public IP address for each of the three cloud providers; a null or empty string value for any provider's IP is a failure.
+Each of the three public IP addresses returned by terraform output must respond to curl -fsSL --max-time 10 http://<IP>/ with HTTP 200 and an HTML body containing the word Hello; a connection timeout or non-200 response means the web server user-data script did not execute correctly and must be debugged before the phase is considered complete.
+Verification commands to run after apply:
+
+# Extract IPs from Terraform output and test each one
+AWS_IP=$(terraform output -json | jq -r '.aws_instance_public_ip.value')
+AZURE_IP=$(terraform output -json | jq -r '.azure_public_ip.value')
+GCP_IP=$(terraform output -json | jq -r '.gcp_instance_external_ip.value')
+
+echo "AWS IP:   $AWS_IP"
+echo "Azure IP: $AZURE_IP"
+echo "GCP IP:   $GCP_IP"
+
+curl -fsSL --max-time 10 "http://${AWS_IP}/"
+curl -fsSL --max-time 10 "http://${AZURE_IP}/"
+curl -fsSL --max-time 10 "http://${GCP_IP}/"
+Phase 3: State Inspection and Cross-Cloud Consistency Audit
+Without modifying any .tf files, use terraform state commands and each provider's CLI to confirm that the resources Terraform believes it created actually exist in each cloud's control plane, and that the environment and project tags are present on every compute instance.
+
+Acceptance Criteria
+
+Running terraform state list must return at least six resource addresses â a minimum of two per provider (one network resource and one compute resource each) â and terraform state show <address> on each compute instance resource must display the public IP that matches the corresponding terraform output value.
+Each cloud CLI command below must return the tag/label values matching what was set in terraform.tfvars; a missing tag on any resource is a failure requiring a terraform apply fix before the lab is considered complete.
+# AWS: verify tags on the EC2 instance
+aws ec2 describe-instances \
+  --filters "Name=tag:Project,Values=*" \
+  --query 'Reservations[*].Instances[*].{ID:InstanceId,State:State.Name,Tags:Tags}' \
+  --output json | jq '.[][] | {id: .ID, state: .State, tags: .Tags}'
+
+# Azure: verify tags on the VM
+az vm list --show-details \
+  --query '[*].{name:name, tags:tags, publicIps:publicIps}' \
+  --output json | jq '.[] | {name: .name, tags: .tags}'
+
+# GCP: verify labels on the compute instance
+gcloud compute instances list \
+  --format="json" | jq '.[] | {name: .name, labels: .labels, ip: .networkInterfaces[0].accessConfigs[0].natIP}'
+Expected Outcomes
+A working Terraform project with three child modules that can be initialized, planned, applied, and destroyed cleanly, with terraform destroy removing all resources across all three clouds without manual intervention.
+Demonstrated ability to cross-reference Terraform state with live cloud-provider CLI output, confirming that IaC-managed resources match their declared configuration.
+Conclusion
+This lab required you to design a non-trivial multi-provider Terraform architecture from first principles, manage authentication across three distinct cloud control planes, and validate infrastructure state using both Terraform's own state commands and native CLI tooling. The discipline of separating provider logic into child modules with explicit variable and output contracts is the foundation of maintainable multi-cloud IaC at production scale. Before leaving the lab environment, run terraform destroy to remove all provisioned resources and avoid unexpected cloud charges.
