@@ -1,0 +1,6 @@
+severity_overrides:
+  aws-s3-enable-bucket-encryption: LOW
+  aws-ec2-no-public-ingress-sgr: MEDIUM
+
+exclude:
+  - aws-s3-enable-bucket-logging
