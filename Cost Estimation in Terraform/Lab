@@ -1,0 +1,102 @@
+ Cost Estimation in Terraform
+Objectives
+Install and configure Terraform and Infracost on a bare Ubuntu instance to enable infrastructure cost analysis
+Author multi-resource Terraform configurations representing distinct infrastructure tiers and generate per-resource cost breakdowns using Infracost
+Produce a structured comparative cost report that quantifies monthly spend differences across infrastructure tiers and identifies the highest-cost resource in each tier
+Prerequisites
+Comfort navigating and editing files on a Linux command line (creating directories, writing files with a text editor, running shell scripts)
+Familiarity with core AWS managed services: EC2, RDS, S3, and Elastic Load Balancing at a conceptual level
+Understanding of what Terraform resources and providers are, and how a .tf file is structured
+Lab Environment
+You will work on a dedicated AWS EC2 Ubuntu instance provided by Al Nafi. The instance has a base Ubuntu installation; you will install all required tools in Task 1.
+
+Task 1: Install and Verify the Toolchain
+Requirement 1: Install Terraform, the AWS CLI, Infracost, and the jq JSON processor on the Ubuntu instance, then register Infracost with a free API key so that cost lookups succeed.
+
+# Official Terraform install guide: https://developer.hashicorp.com/terraform/install
+# Official AWS CLI install guide: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
+# Official Infracost install guide: https://www.infracost.io/docs/
+
+sudo apt-get update -y
+sudo apt-get install -y curl wget unzip jq gnupg software-properties-common
+
+wget -fsSL https://releases.hashicorp.com/terraform/1.8.5/terraform_1.8.5_linux_amd64.zip \
+  -O terraform.zip
+unzip terraform.zip
+sudo mv terraform /usr/local/bin/
+rm terraform.zip
+terraform version
+Troubleshoot this step:
+
+You see E: Package 'gnupg' has no installation candidate â the package index is stale.
+Run sudo apt-get update -y again, then retry the install command.
+Official guide: https://developer.hashicorp.com/terraform/install
+curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o awscliv2.zip
+unzip awscliv2.zip
+sudo ./aws/install
+rm -rf aws awscliv2.zip
+aws --version
+Troubleshoot this step:
+
+You see ./aws/install: No such file or directory â the zip did not extract correctly, possibly because the download silently returned an HTML error page.
+Run file awscliv2.zip â if it reports HTML document instead of Zip archive, the download URL has changed; delete the file and consult the official guide.
+Official guide: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
+curl -fsSL https://raw.githubusercontent.com/infracost/infracost/master/scripts/install.sh \
+  | sh
+sudo mv "$HOME/.local/bin/infracost" /usr/local/bin/ 2>/dev/null || true
+infracost --version
+Troubleshoot this step:
+
+You see infracost: command not found after the install script completes â the binary was placed in a directory not on your PATH.
+Run find "$HOME" /usr/local/bin -name infracost 2>/dev/null to locate the binary, then move it with sudo mv <found-path> /usr/local/bin/infracost.
+Official guide: https://www.infracost.io/docs/
+infracost auth login
+infracost configure get api_key
+Troubleshoot this step:
+
+You see Error: no browser available and the command hangs â the headless instance cannot open a browser.
+Copy the printed URL, open it in your local browser to complete registration, then paste the API key back with infracost configure set api_key <YOUR_KEY>.
+Official guide: https://www.infracost.io/docs/infracost_cloud/get_started/
+Configure placeholder AWS credentials so Terraform provider initialization succeeds (no real AWS resources will be deployed):
+
+aws configure set aws_access_key_id     "AKIAIOSFODNN7EXAMPLE"
+aws configure set aws_secret_access_key "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+aws configure set default.region        "us-east-1"
+aws configure set default.output        "json"
+aws configure list
+Acceptance Criteria:
+
+Running terraform version, aws --version, and infracost --version each print a version string with exit code 0, and infracost configure get api_key prints a non-empty key.
+Running aws configure list shows access_key, secret_key, and region all set to non-empty values.
+Task 2: Author Multi-Tier Terraform Configurations
+Requirement 1: Design and implement two Terraform configurations â one representing a development tier and one representing a production tier â each in its own subdirectory under ~/cost-lab/. The development tier must include at minimum one EC2 instance, one RDS instance, and one S3 bucket. The production tier must include at minimum one Auto Scaling Group with a launch template, one Multi-AZ RDS instance with a subnet group across two private subnets, one Application Load Balancer, and one ElastiCache replication group. Both configurations must use the hashicorp/aws provider pinned to ~> 5.0, declare all tuneable values as input variables with defaults, and pass terraform init without errors.
+
+The directory layout must be:
+
+~/cost-lab/
+  dev/
+    main.tf
+  prod/
+    main.tf
+Each main.tf must be entirely your own work. No templates are provided. Decide resource sizes, variable names, and tagging conventions yourself. The configurations do not need to be deployable against real AWS credentials; they only need to be syntactically valid and parseable by Infracost.
+
+Requirement 2: Design and implement a third Terraform configuration in ~/cost-lab/optimized/ that targets the same functional role as the production tier but applies at least four distinct cost-reduction techniques. Techniques you may consider include (but are not limited to): replacing On-Demand EC2 with Spot requests, downsizing instance types, replacing a Multi-AZ RDS with a single-AZ instance, replacing an Application Load Balancer with a Network Load Balancer, enabling S3 Intelligent-Tiering, or reducing ElastiCache node count. Document each technique as an inline comment in main.tf on the line of the resource it affects.
+
+Acceptance Criteria:
+
+Running terraform init inside each of dev/, prod/, and optimized/ completes with the message Terraform has been successfully initialized! and no errors.
+The optimized/main.tf file contains at least four inline comments, each beginning with the prefix # COST-OPT:, that each name a specific technique and the resource it applies to (for example: # COST-OPT: Spot Instance replaces On-Demand to reduce compute cost).
+Task 3: Generate, Compare, and Interpret Cost Reports
+Requirement 1: Using Infracost, generate a cost breakdown for each of the three configurations and save the results. For each configuration, produce both a JSON output file (for machine parsing) and a table-format text file (for human reading). All six output files must be stored under ~/cost-lab/reports/ with names that unambiguously identify the scenario and format (for example: dev-breakdown.json, dev-breakdown.txt).
+
+Requirement 2: Write a shell script at ~/cost-lab/compare.sh that reads the three JSON breakdown files, extracts the totalMonthlyCost field from each using jq, prints a formatted three-row summary table to stdout showing scenario name and monthly cost, calculates the absolute dollar saving of the optimized tier versus the production tier, and writes the entire output to ~/cost-lab/reports/comparison-summary.txt. The script must exit with code 0 on success and print a descriptive error message (not a stack trace) if any of the three JSON files is missing.
+
+Acceptance Criteria:
+
+The directory ~/cost-lab/reports/ contains exactly six files matching the pattern <scenario>-breakdown.json and <scenario>-breakdown.txt for each of the three scenarios, and each .json file contains a totalMonthlyCost field with a numeric string value when inspected with jq -r '.totalMonthlyCost'.
+Running bash ~/cost-lab/compare.sh exits with code 0, prints a table with three rows (one per scenario) each containing a dollar amount, prints a line of the form Optimized saves $X.XX/month vs Production, and creates ~/cost-lab/reports/comparison-summary.txt containing the same output.
+Expected Outcomes
+Three valid Terraform configurations exist representing development, production, and cost-optimized tiers, each with Infracost-generated JSON and table cost reports stored under a single reports directory.
+A working shell script produces a three-scenario cost comparison table and quantifies the monthly saving achieved by the optimized tier relative to the production tier.
+Conclusion
+This lab required you to build a complete cost-estimation pipeline from a bare Ubuntu instance: installing the toolchain, authoring multi-resource Terraform configurations at different complexity levels, and writing automation to extract and compare cost data programmatically. The core skill is not memorizing Infracost flags but understanding how infrastructure design choices â instance type, redundancy level, load balancer type â translate directly into measurable monthly cost differences. Carry this cost-awareness habit into every infrastructure design decision you make.
