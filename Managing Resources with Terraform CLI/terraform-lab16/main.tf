@@ -67,3 +67,17 @@ resource "null_resource" "database_setup" {
   
   depends_on = [local_file.database_config]
 }
+
+
+resource "local_file" "app_config" {
+  filename = "${path.module}/app-config.txt"
+  content  = <<-EOT
+    Application Configuration
+    Environment: ${var.environment}
+    Version: ${var.app_version}
+    Database: localhost:5432
+    Cache: redis://localhost:6379
+    Updated: ${timestamp()}
+  EOT
+}
+
