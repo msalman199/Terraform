@@ -1,0 +1,68 @@
+ Terraform Ecosystem and Best Practices
+Objectives
+Design and publish a reusable, multi-module Terraform library that enforces input validation and exposes typed outputs
+Implement environment-scoped infrastructure configurations that consume local modules and demonstrate state isolation
+Automate the full Terraform lifecycle (init, validate, plan, apply, destroy) using a shell-based orchestration script with error handling
+Prerequisites
+Comfort with Linux command-line operations including file editing, directory navigation, and shell scripting
+Conceptual understanding of infrastructure as code: what state files are, why idempotency matters, and how provider plugins work
+Lab Environment
+You will work on a dedicated AWS EC2 Ubuntu instance provided by Al Nafi. The instance has a base Ubuntu installation; you will install all required tools in Task 1.
+
+Task 1: Install and Verify the Terraform Toolchain
+Step 1: Install Terraform, Git, and supporting utilities
+Run the following commands exactly as written. The HashiCorp APT repository is used so that future apt upgrade commands keep Terraform current.
+
+sudo apt-get update -y
+sudo apt-get install -y gnupg software-properties-common curl wget unzip git tree
+# Add HashiCorp GPG key
+curl -fsSL https://apt.releases.hashicorp.com/gpg \
+  | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+Official installation guide (use this if the URL above changes): https://developer.hashicorp.com/terraform/install#linux
+
+# Add HashiCorp APT repository â written as a single line via printf to avoid backslash corruption
+printf 'deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com %s main\n' \
+  "$(lsb_release -cs)" \
+  | sudo tee /etc/apt/sources.list.d/hashicorp.list
+Troubleshoot this step:
+
+Error seen: E: Malformed entry 1 in list file /etc/apt/sources.list.d/hashicorp.list â this means a literal backslash was written into the file.
+Recovery: Run cat /etc/apt/sources.list.d/hashicorp.list â the file must be a single unbroken line; delete it with sudo rm /etc/apt/sources.list.d/hashicorp.list and re-run the printf command above.
+Official docs: https://developer.hashicorp.com/terraform/install#linux
+sudo apt-get update -y
+sudo apt-get install -y terraform
+Step 2: Verify every installed tool and configure Git
+terraform version
+git --version
+tree --version
+You should see a Terraform version line beginning with Terraform v1. and no error output. If any command returns command not found, the installation in Step 1 did not complete successfully.
+
+git config --global user.name "Lab Student"
+git config --global user.email "student@alnafi.lab"
+Confirmation: git config --global --list must print both user.name and user.email without error.
+
+Task 2: Design and Build a Reusable Terraform Module Library
+Problem Statement
+Design and implement a local Terraform module library containing at least two modules â one for network topology (VPC, subnets, route tables) and one for compute resources (security group, EC2 instances via a launch template). Each module must enforce input constraints using validation blocks, expose a complete set of typed outputs, and include a versions.tf file that pins the required Terraform version and AWS provider version. No module may contain hard-coded values; every configurable attribute must be an input variable with a description and type constraint.
+
+The module library must live under a modules/ directory. A consumer configuration under environments/dev/ must call both modules, wire the networking module's outputs into the compute module's inputs, and produce a terraform plan that exits with code 0 using the hashicorp/aws provider pointed at a local mock endpoint (LocalStack or a null provider â your choice of mock strategy).
+
+Acceptance Criteria
+
+Running terraform validate inside environments/dev/ exits with code 0 and prints Success! The configuration is valid. â no warnings, no errors.
+Every input variable in both modules has a type, a description, and at least one validation block; running terraform plan with a deliberately invalid input value (for example, a VPC CIDR that is not a valid CIDR notation) causes Terraform to exit with a non-zero code and print the custom error_message from the validation block.
+Task 3: Automate the Terraform Lifecycle with an Orchestration Script
+Problem Statement
+Design and implement a single Bash orchestration script named tf-orchestrate.sh that accepts one positional argument â the target environment name (dev, staging, or prod) â and executes the full Terraform lifecycle for that environment in the correct order: tool-version check, init, validate, plan (saving the plan to a binary file named <environment>.tfplan), and a gated apply that only proceeds if the plan file exists and the user explicitly confirms. The script must handle errors at every stage: if any Terraform command exits with a non-zero code, the script must print a descriptive message identifying which stage failed and exit with a non-zero code itself without continuing to the next stage.
+
+The script must also support a destroy sub-command (./tf-orchestrate.sh dev destroy) that runs terraform destroy with -auto-approve only after printing a ten-second countdown warning that can be interrupted with Ctrl-C.
+
+Acceptance Criteria
+
+Running ./tf-orchestrate.sh dev against the environments/dev/ configuration from Task 2 completes the init-validate-plan sequence, writes dev.tfplan to disk, prompts for confirmation before apply, and exits with code 0 when the user confirms; if any intermediate stage fails, the script exits immediately with a non-zero code and a message that names the failed stage (verified by temporarily introducing a syntax error into environments/dev/main.tf and confirming the script stops at the validate stage).
+Running ./tf-orchestrate.sh dev destroy prints a visible ten-second countdown to stderr, can be cancelled with Ctrl-C before the countdown ends, and â if not cancelled â executes terraform destroy -auto-approve and exits with code 0; the script must refuse to run at all if called with an environment name other than dev, staging, or prod, printing a usage message and exiting with code 1.
+Expected Outcomes
+A version-controlled repository containing a two-module Terraform library, two environment configurations, and a fully error-handled orchestration script that manages the complete infrastructure lifecycle without manual Terraform commands.
+Both acceptance criteria in Task 2 and both acceptance criteria in Task 3 pass demonstrably: terraform validate succeeds, invalid inputs produce custom error messages, the orchestration script gates apply behind confirmation, and the destroy countdown is interruptible.
+Conclusion
+This lab required you to make architectural decisions â module boundaries, variable contracts, output shapes, and error-handling strategy â without prescribed steps, which mirrors real infrastructure engineering work. The orchestration script pattern you built is the foundation of CI/CD pipeline integration for Terraform, where the same init-validate-plan-apply sequence runs unattended with human approval gates. Extend this foundation by adding remote state backends and policy-as-code checks as your next self-directed challenge.
