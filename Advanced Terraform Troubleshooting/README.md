@@ -1,0 +1,548 @@
+<div align="center">
+
+# 🩺 Advanced Terraform Troubleshooting
+
+### Diagnosing State Drift, Debugging with terraform console, and Recovering from Failed Applies
+
+![Terraform](https://img.shields.io/badge/Terraform-844FBA?style=for-the-badge&logo=terraform&logoColor=white)
+![HCL](https://img.shields.io/badge/HCL-844FBA?style=for-the-badge&logo=terraform&logoColor=white)
+![Bash](https://img.shields.io/badge/Bash-4EAA25?style=for-the-badge&logo=gnu-bash&logoColor=white)
+![jq](https://img.shields.io/badge/jq-000000?style=for-the-badge&logo=json&logoColor=white)
+![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)
+![Debugging](https://img.shields.io/badge/Debugging-2C3E50?style=for-the-badge&logo=shieldsdotio&logoColor=white)
+
+</div>
+
+---
+
+## 📋 Table of Contents
+
+- [🎯 Lab Objectives](#-lab-objectives)
+- [📌 Prerequisites](#-prerequisites)
+- [🧰 Toolchain Setup](#-toolchain-setup)
+- [🗃️ Task 1: Diagnose and Resolve State Management Issues](#️-task-1-diagnose-and-resolve-state-management-issues)
+- [🖥️ Task 2: Use Terraform Console for Debugging](#️-task-2-use-terraform-console-for-debugging)
+- [🚨 Task 3: Implement Error Handling for Failed terraform apply Operations](#-task-3-implement-error-handling-for-failed-terraform-apply-operations)
+- [🏆 Expected Outcomes](#-expected-outcomes)
+- [🛠️ Troubleshooting](#️-troubleshooting)
+- [🧠 Key Concepts](#-key-concepts)
+- [🏁 Conclusion](#-conclusion)
+
+---
+
+## 🎯 Lab Objectives
+
+By the end of this lab, you will be able to:
+
+| # | Objective |
+|---|-----------|
+| 1 | 🗃️ Diagnose and resolve common Terraform **state management** issues |
+| 2 | 🖥️ Use `terraform console` to debug and test Terraform configurations interactively |
+| 3 | 🚨 Implement proper **error handling** strategies for failed `terraform apply` operations |
+| 4 | 🔍 Identify and fix configuration syntax errors and resource conflicts |
+| 5 | 📘 Apply best practices for troubleshooting infrastructure-as-code deployments |
+
+---
+
+## 📌 Prerequisites
+
+| Requirement | Details |
+|-------------|---------|
+| 🌍 Terraform Basics | Basic understanding of Terraform concepts (resources, providers, state) |
+| 💻 Linux CLI | Familiarity with Linux command line operations |
+| 🏗️ IaC Concepts | Knowledge of basic infrastructure concepts (variables, outputs, locals) |
+| 📄 HCL/JSON | Understanding of JSON and HCL (HashiCorp Configuration Language) syntax |
+| ✏️ Text Editors | Experience with text editors like `vim` or `nano` |
+
+---
+
+## 🧰 Toolchain Setup
+
+> ℹ️ This lab uses **only** the `hashicorp/local` provider, so no cloud account or credentials are required. All resources created are local files on your own machine, making this safe to run in an isolated practice environment.
+
+**1️⃣ Install the required tools before beginning:**
+```bash
+# ⬆️ Update the system package manager
+sudo apt update && sudo apt upgrade -y
+
+# 📥 Install required packages
+sudo apt install -y wget unzip curl jq
+
+# 🌍 Download and install Terraform (adjust version if a newer patch is available)
+wget https://releases.hashicorp.com/terraform/1.6.6/terraform_1.6.6_linux_amd64.zip
+unzip terraform_1.6.6_linux_amd64.zip
+sudo mv terraform /usr/local/bin/
+rm terraform_1.6.6_linux_amd64.zip
+
+# 🔍 Verify installation
+terraform version
+```
+
+---
+
+## 🗃️ Task 1: Diagnose and Resolve State Management Issues
+
+### 📝 Subtask 1.1: Create a Working Configuration
+
+```bash
+mkdir -p ~/terraform-troubleshooting-lab/scenario1-state-issues
+cd ~/terraform-troubleshooting-lab/scenario1-state-issues
+
+cat > main.tf << 'EOF'
+terraform {
+  required_version = ">= 1.0"
+  required_providers {
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.4"
+    }
+  }
+}
+
+resource "local_file" "example" {
+  content  = "Hello from Terraform - Version 1"
+  filename = "${path.module}/example.txt"
+}
+
+resource "local_file" "config" {
+  content  = "config_version=1.0\nstatus=active"
+  filename = "${path.module}/config/app.conf"
+}
+
+output "file_content" {
+  value = local_file.example.content
+}
+EOF
+
+mkdir -p config
+terraform init
+terraform apply -auto-approve
+
+ls -la
+cat example.txt
+cat config/app.conf
+```
+
+> ✅ **Deliverable:** `terraform apply` completes with `Apply complete! Resources: 2 added, 0 changed, 0 destroyed.` and both `example.txt` and `config/app.conf` exist with the expected content.
+
+### 🌊 Subtask 1.2: Simulate and Detect State Drift
+
+> ℹ️ State drift happens when the real infrastructure changes outside of Terraform. We simulate this by deleting a managed file directly, bypassing Terraform.
+
+```bash
+# 💾 Back up the known-good state before experimenting
+cp terraform.tfstate terraform.tfstate.backup
+
+# 🗑️ Simulate drift: someone deletes a file outside of Terraform
+rm config/app.conf
+
+# 👀 Terraform's state still believes the file exists
+terraform plan
+```
+
+> 📊 **Expected output:** `terraform plan` shows that `local_file.config` will be created again, because the file it manages is missing from disk while the state still tracks it. You will see a line similar to:
+> ```
+>   # local_file.config will be created
+>   + resource "local_file" "config" {
+> ```
+> This is the diagnostic signal for drift: state says "exists," reality says "missing."
+
+### 🔧 Subtask 1.3: Resolve Drift and Corrupted State
+
+```bash
+# ✅ Fix 1: reconcile drift by re-applying (recreates the missing file)
+terraform apply -auto-approve
+cat config/app.conf
+
+# 💥 Fix 2: simulate a lost state file entirely
+rm terraform.tfstate terraform.tfstate.backup
+terraform init
+
+# ❓ Without state, Terraform thinks nothing exists yet
+terraform plan
+
+# 📥 Recover by importing the existing real resources back into state
+terraform import local_file.example ./example.txt
+terraform import local_file.config ./config/app.conf
+
+# ✅ Confirm state now matches reality
+terraform plan
+```
+
+> ✅ **Deliverable:** after both imports, `terraform plan` reports `No changes. Your infrastructure matches the configuration.` This confirms the state has been successfully rebuilt from real resources.
+
+### 🔬 Subtask 1.4: Inspect and Manipulate State Directly
+
+```bash
+# 📋 List all resources currently tracked in state
+terraform state list
+
+# 🔍 Show full attributes of one resource
+terraform state show local_file.example
+
+# 📤 Remove a resource from state without destroying the real file
+terraform state rm local_file.config
+
+# ❓ Confirm Terraform now considers it unmanaged (wants to create it again)
+terraform plan
+
+# 📥 Re-import to restore management
+terraform import local_file.config ./config/app.conf
+terraform plan
+```
+
+> ✅ **Deliverable:** `terraform state list` prints exactly two resource addresses (`local_file.example` and `local_file.config`) after the final import, and `terraform plan` reports no changes.
+
+> 🎓 **TODO:** Before Task 2, write one sentence in your own words explaining the difference between what `terraform state rm` did in Subtask 1.4 and what `rm config/app.conf` did in Subtask 1.2 — one removes Terraform's *knowledge*, the other removes the *resource itself*.
+
+---
+
+## 🖥️ Task 2: Use Terraform Console for Debugging
+
+### 🧩 Subtask 2.1: Build a Configuration With Variables and Locals
+
+```bash
+mkdir -p ~/terraform-troubleshooting-lab/scenario2-console-debugging
+cd ~/terraform-troubleshooting-lab/scenario2-console-debugging
+
+cat > variables.tf << 'EOF'
+variable "environment" {
+  description = "Environment name"
+  type        = string
+  default     = "development"
+}
+
+variable "application_config" {
+  description = "Application configuration"
+  type = object({
+    name     = string
+    version  = string
+    replicas = number
+    ports    = list(number)
+  })
+  default = {
+    name     = "web-app"
+    version  = "1.0.0"
+    replicas = 3
+    ports    = [80, 443, 8080]
+  }
+}
+EOF
+
+cat > locals.tf << 'EOF'
+locals {
+  deployment_strategy = var.environment == "production" ? "blue-green" : "rolling"
+
+  exposed_ports = [
+    for port in var.application_config.ports : port
+    if port != 8080
+  ]
+
+  computed_labels = {
+    environment = var.environment
+    app_name    = var.application_config.name
+    app_version = var.application_config.version
+  }
+}
+EOF
+
+cat > main.tf << 'EOF'
+terraform {
+  required_providers {
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.4"
+    }
+  }
+}
+
+resource "local_file" "deployment_summary" {
+  filename = "deployment-summary.json"
+  content = jsonencode({
+    environment         = var.environment
+    deployment_strategy = local.deployment_strategy
+    labels              = local.computed_labels
+    exposed_ports       = local.exposed_ports
+  })
+}
+EOF
+
+cat > outputs.tf << 'EOF'
+output "deployment_info" {
+  description = "Deployment information"
+  value = {
+    strategy      = local.deployment_strategy
+    exposed_ports = local.exposed_ports
+    environment   = var.environment
+  }
+}
+EOF
+
+terraform init
+terraform apply -auto-approve
+cat deployment-summary.json
+```
+
+> ✅ **Deliverable:** `deployment-summary.json` is created and contains `"deployment_strategy": "rolling"` and `"exposed_ports": [80, 443]`, since the default environment is `development` and port `8080` is excluded.
+
+### 🐚 Subtask 2.2: Debug Interactively with terraform console
+
+**1️⃣ Start an interactive session:**
+```bash
+terraform console
+```
+
+**2️⃣ Inside the console prompt, try each expression below one at a time and observe the output, then type `exit` to leave:**
+```hcl
+var.environment
+var.application_config.ports
+local.deployment_strategy
+local.exposed_ports
+keys(local.computed_labels)
+upper(var.environment)
+[for p in var.application_config.ports : p * 10]
+jsonencode(local.computed_labels)
+```
+
+**Expected results:**
+
+| Expression | Result |
+|------------|--------|
+| `var.environment` | `"development"` |
+| `local.deployment_strategy` | `"rolling"` |
+| `local.exposed_ports` | `[80, 443]` |
+| `[for p in var.application_config.ports : p * 10]` | `[800, 4430, 80800]` |
+
+> ℹ️ This lets you validate the logic of locals and expressions **before ever running apply**, which is the core value of `terraform console` for debugging.
+
+### 🕵️ Subtask 2.3: Diagnose a Broken Expression Without Editing Files
+
+> ℹ️ Terraform console evaluates expressions against the current configuration and state without changing either. Use it to confirm a hypothesis about a bug before touching your `.tf` files.
+
+```bash
+echo 'var.application_config.replicas > 1 ? "scaled" : "single"' | terraform console
+```
+
+> 📊 **Expected output:** `"scaled"` (since the default `replicas` value is `3`). If you changed the default to `1` in `variables.tf` and reran this, it would print `"single"` — demonstrating how console lets you test conditional logic changes quickly by piping expressions in, without a full apply cycle.
+
+> ✅ **Deliverable:** you have run at least four different expressions through `terraform console` (interactively or piped) and recorded what each returned, matching the expected values above.
+
+---
+
+## 🚨 Task 3: Implement Error Handling for Failed terraform apply Operations
+
+### 💥 Subtask 3.1: Create a Configuration With a Guaranteed Failure
+
+```bash
+mkdir -p ~/terraform-troubleshooting-lab/scenario3-error-handling
+cd ~/terraform-troubleshooting-lab/scenario3-error-handling
+
+cat > main.tf << 'EOF'
+terraform {
+  required_providers {
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.4"
+    }
+  }
+}
+
+variable "create_files" {
+  description = "List of files to create"
+  type = list(object({
+    name    = string
+    content = string
+    path    = string
+  }))
+  default = [
+    {
+      name    = "app-config"
+      content = "app_name=myapp\nversion=1.0"
+      path    = "config"
+    },
+    {
+      name    = "database-config"
+      content = "db_host=localhost\ndb_port=5432"
+      path    = "config"
+    }
+  ]
+}
+
+resource "local_file" "config_files" {
+  for_each = { for f in var.create_files : f.name => f }
+
+  filename = "${each.value.path}/${each.value.name}.conf"
+  content  = each.value.content
+}
+
+# ⚠️ This resource will fail: parent directory does not exist and
+# local_file does not create nested directories beyond one missing level
+# combined with a read-only target, so we force a permission failure instead.
+resource "local_file" "system_file" {
+  filename = "/etc/terraform-lab-test.conf"
+  content  = "this will fail without root permissions"
+}
+EOF
+
+terraform init
+```
+
+### 📋 Subtask 3.2: Run Apply and Capture the Failure
+
+```bash
+terraform apply -auto-approve 2>&1 | tee apply_output.log
+echo "Exit code: $?"
+```
+
+> 📊 **Expected output:** the `config_files` resources apply successfully, but `local_file.system_file` fails with an error similar to:
+> ```
+> Error: open /etc/terraform-lab-test.conf: permission denied
+> ```
+> The overall command exits non-zero because one resource failed, even though others succeeded. This is the key behavior to understand: **Terraform applies as much as it safely can and reports precisely which resource failed.**
+
+### 🎯 Subtask 3.3: Diagnose and Recover Using Targeted Apply
+
+```bash
+# ✅ Confirm which resources succeeded despite the overall failure
+terraform state list
+
+# ❌ Confirm the failing resource is NOT in state (it never succeeded)
+terraform state list | grep system_file || echo "system_file not in state, as expected"
+
+# 🔧 Fix the configuration by removing the invalid resource
+cat > main.tf << 'EOF'
+terraform {
+  required_providers {
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.4"
+    }
+  }
+}
+
+variable "create_files" {
+  description = "List of files to create"
+  type = list(object({
+    name    = string
+    content = string
+    path    = string
+  }))
+  default = [
+    {
+      name    = "app-config"
+      content = "app_name=myapp\nversion=1.0"
+      path    = "config"
+    },
+    {
+      name    = "database-config"
+      content = "db_host=localhost\ndb_port=5432"
+      path    = "config"
+    }
+  ]
+}
+
+resource "local_file" "config_files" {
+  for_each = { for f in var.create_files : f.name => f }
+
+  filename = "${each.value.path}/${each.value.name}.conf"
+  content  = each.value.content
+}
+EOF
+
+terraform plan
+terraform apply -auto-approve
+```
+
+> ✅ **Deliverable:** after removing the invalid resource, `terraform plan` reports `No changes. Your infrastructure matches the configuration.` and `terraform state list` shows only the two `local_file.config_files` instances. This demonstrates the recovery workflow: **identify** the failed resource from the error message, **confirm** it never entered state, **fix or remove** it from configuration, then **re-plan** to confirm a clean, consistent result.
+
+### 🔁 Subtask 3.4: Build a Retry Wrapper Script
+
+> ℹ️ Transient failures (like temporary file locks or network blips against remote backends) are best handled with a bounded retry loop rather than manual reruns.
+
+```bash
+cat > apply_with_retry.sh << 'EOF'
+#!/bin/bash
+set -o pipefail
+
+MAX_RETRIES=3
+RETRY_DELAY=5
+attempt=1
+
+while [ $attempt -le $MAX_RETRIES ]; do
+  echo "Attempt $attempt of $MAX_RETRIES"
+  if terraform apply -auto-approve 2>&1 | tee -a terraform-apply.log; then
+    echo "Apply succeeded on attempt $attempt"
+    exit 0
+  fi
+  echo "Apply failed on attempt $attempt"
+  attempt=$((attempt + 1))
+  if [ $attempt -le $MAX_RETRIES ]; then
+    echo "Waiting ${RETRY_DELAY}s before retry..."
+    sleep $RETRY_DELAY
+  fi
+done
+
+echo "Apply failed after $MAX_RETRIES attempts. See terraform-apply.log for details."
+exit 1
+EOF
+
+chmod +x apply_with_retry.sh
+./apply_with_retry.sh
+```
+
+> ✅ **Deliverable:** the script prints `Apply succeeded on attempt 1` (since the corrected configuration applies cleanly) and `terraform-apply.log` contains the full apply output for later review.
+
+---
+
+## 🏆 Expected Outcomes
+
+- 🗃️ You can identify and repair state drift and lost state using `terraform plan`, `terraform import`, and `terraform state` subcommands
+- 🖥️ You can use `terraform console` to validate variables, locals, and expressions interactively before committing to a full apply
+- 🚨 You can read a failed `terraform apply` error message, determine which resources succeeded versus failed, and recover to a clean, consistent state
+
+---
+
+## 🛠️ Troubleshooting
+
+<details>
+<summary>❗ Symptom: terraform init fails with a provider checksum or lock file error</summary>
+
+**Diagnostic hint:** Check whether `.terraform.lock.hcl` was copied from a different machine or architecture; try removing the `.terraform` directory and the lock file, then re-run `terraform init`.
+</details>
+
+<details>
+<summary>❗ Symptom: terraform apply reports a resource already exists during creation</summary>
+
+**Diagnostic hint:** Run `terraform state list` to check if it is already tracked; if not, this usually means the real resource exists outside of Terraform's knowledge and needs `terraform import` rather than `apply`.
+</details>
+
+---
+
+## 🧠 Key Concepts
+
+| Concept | Tool / Technique | Purpose |
+|---------|-------------------|---------|
+| 🌊 State Drift | `terraform plan` after an out-of-band change | Detects when reality no longer matches what state believes exists |
+| 📥 State Recovery | `terraform import` | Rebuilds state from real resources after loss or corruption |
+| 📤 State Surgery | `terraform state rm` / `state mv` / `state show` | Inspects and corrects what Terraform believes exists, without touching real resources |
+| 🖥️ Interactive Debugging | `terraform console` (interactive or piped) | Validates variables, locals, and expressions before committing to a full apply |
+| 🎯 Partial Failure Handling | Reading `terraform apply` error output | Distinguishes resources that succeeded from the one that failed in the same run |
+| 🔁 Transient Failure Recovery | Bounded retry wrapper (`apply_with_retry.sh`) | Handles temporary failures automatically instead of requiring manual reruns |
+
+---
+
+## 🏁 Conclusion
+
+In this lab, you worked through the full lifecycle of Terraform troubleshooting using only the local provider, which kept the environment safe and fully self-contained. You practiced detecting and repairing state drift, recovering from a deleted or corrupted state file through `terraform import`, and using `terraform state` commands to inspect and correct what Terraform believes exists. You also used `terraform console` to validate variables, locals, and expressions interactively, which is a fast way to confirm configuration logic before running a full apply. Finally, you triggered a real apply failure, learned to read Terraform's error output to distinguish succeeded resources from failed ones, corrected the configuration, and built a simple retry wrapper for handling transient failures.
+
+### 🌍 Real-World Applications
+
+Together these skills form a practical troubleshooting workflow: verify state against reality, isolate and test logic before applying, and always confirm a clean plan after recovering from any failure.
+
+---
+
+<div align="center">
+
+![Al Nafi](https://img.shields.io/badge/Al%20Nafi-Cybersecurity%20Training-blueviolet?style=for-the-badge)
+
+</div>
