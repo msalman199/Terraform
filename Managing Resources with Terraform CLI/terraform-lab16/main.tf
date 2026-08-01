@@ -80,4 +80,18 @@ resource "local_file" "app_config" {
     Updated: ${timestamp()}
   EOT
 }
-
+resource "local_file" "web_server_config" {
+  filename = "${path.module}/nginx.conf"
+  content  = <<-EOT
+    server {
+        listen 80;
+        server_name localhost;
+        
+        location / {
+            proxy_pass http://localhost:3000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+    }
+  EOT
+}
