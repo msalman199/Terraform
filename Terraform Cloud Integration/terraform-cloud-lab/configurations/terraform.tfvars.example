@@ -1,0 +1,10 @@
+# Example variables file for Terraform Cloud Lab
+environment  = "development"
+project_name = "terraform-cloud-lab"
+
+tags = {
+  Environment = "development"
+  Project     = "terraform-cloud-lab"
+  ManagedBy   = "terraform-cloud"
+  Owner       = "lab-student"
+}
